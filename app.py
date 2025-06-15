@@ -5,7 +5,8 @@ import requests
 import json
 
 # Ambil API Key dari secrets.toml (Streamlit Cloud)
-API_KEY = st.secrets["API_KEY"]
+API_KEY = st.secrets["api_key"]
+
 
 def query_openrouter(prompt: str, model="deepseek/deepseek-r1-0528-qwen3-8b:free"):
     url = "https://openrouter.ai/api/v1/chat/completions"
