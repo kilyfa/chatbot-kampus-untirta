@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-openai.api_key = os.getenv("api_key")
+openai.api_key = st.secrets["API_KEY"]
 openai.api_base = "https://openrouter.ai/api/v1"
 
 def query_openrouter(prompt: str, model="deepseek/deepseek-r1-0528-qwen3-8b:free"):
