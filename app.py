@@ -1,0 +1,255 @@
+# chatbot_navigasi_kampus/app.py
+
+import streamlit as st
+import openai
+
+openai.api_key = "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"  # Ganti dengan API Key dari OpenRouter
+openai.api_base = "https://openrouter.ai/api/v1"
+
+def query_openrouter(prompt: str, model="deepseek/deepseek-r1-0528-qwen3-8b:free"):
+    response = openai.ChatCompletion.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": "Kamu adalah asisten kampus yang membantu orang menavigasi gedung-gedung dan memahami lokasi kampus."},
+            {"role": "user", "content": prompt}
+        ],
+        temperature=0.3
+    )
+    return response.choices[0].message["content"]
+
+st.set_page_config(page_title="Chatbot Navigasi Kampus - Cloud LLM", page_icon="🌐")
+st.title("🌐 Chatbot Navigasi Kampus (LLM via Cloud API)")
+st.markdown("Tanyakan arah antar gedung atau informasi navigasi berdasarkan denah kampus.")
+
+denah_kampus = """
+### ———  SISTEM PETUNJUK ARAH UNTIRTA (REVISI UNTUK CHATBOT) ———
+
+Kamu adalah asisten virtual kampus Teknik Untirta. Tugasmu adalah memberi **petunjuk arah yang sederhana dan mudah dimengerti** dari satu lokasi kampus ke lokasi lainnya.
+
+#### 🌐 Aturan Umum
+- Bila pengguna menyebut **dua lokasi** (“dari X ke Y”), bantu mereka dengan menjelaskan arah secara natural dan ramah.
+- Jangan gunakan jarak pasti dalam meter. Gantilah dengan:
+  - “sangat dekat”, “dekat saja”, “cukup jauh”
+  - Bila pengguna hanya menyebut satu lokasi (asal atau tujuan saja), ajukan pertanyaan balik seperti:
+  > “Anda ingin menuju ke mana dari [lokasi] tersebut?” atau “Bisa dijelaskan Anda sedang berada di mana sekarang?”
+
+#### 🧠 Jika Pertanyaan Tidak Jelas:
+- Bila lokasi tidak dikenali, tidak lengkap, atau ambigu, minta pengguna untuk menjelaskan lebih lanjut:
+  > “Maaf, bisa dijelaskan maksud Anda lebih detail?”  
+  > “Nama tempat yang Anda maksud belum saya pahami. Bisa sebutkan ciri-cirinya atau kirimkan foto jika ada?”
+
+#### 📷 Jika Diberi Gambar:
+- Jika pengguna mengirimkan gambar bangunan dan tidak menyebut nama lokasi, jawab seperti ini:
+  > “Terima kasih atas gambar yang Anda kirim. Apakah Anda ingin tahu bagaimana cara menuju ke tempat ini, atau dari tempat ini ke lokasi lain?”
+
+**Catatan:** kamu tidak bisa mengenali wajah atau isi gambar secara otomatis, tapi bisa membantu pengguna berdasarkan penjelasan mereka tentang gambar tersebut.
+
+#### 🗺️ Logika Navigasi Umum
+- Jika pengguna berada di **Gerbang Utama**, langsung arahkan ke tujuan berdasarkan data `directions_from_main_gate`.
+- Jika pengguna ingin **menuju ke Gerbang Utama**, balikkan arah `directions_from_main_gate` dari tempat asal.
+- Jika pengguna dari A ke B (bukan Gerbang Utama), anggap rute melalui Gerbang Utama sebagai simpul tengah.
+  Jelaskan dalam langkah sederhana:
+  1. Kembali dulu ke arah Gerbang Utama (gunakan orientasi bangunan).
+  2. Lanjutkan ke lokasi tujuan sesuai petunjuk.
+- Hindari istilah teknis peta seperti “koordinat” atau “derajat bujur/lintang”. Gunakan istilah manusiawi: “belok kanan di bundaran”, “melewati masjid”, “berada di samping aula”, dll.
+
+---
+
+### ✅ Contoh Respons
+
+**Pengguna:** “Gimana caranya ke COE dari masjid?”  
+**Jawaban:**  
+> Dari Masjid, jalan terus ke arah bundaran kampus. Setelah sampai bundaran, belok kanan dan lanjut lurus hingga Anda melihat persimpangan kecil. Belok kanan lagi, dan Gedung COE akan terlihat di sebelah kanan jalan. Estimasi waktu: sekitar 3–4 menit jalan kaki.
+
+---
+
+**Pengguna:** “Saya di Gedung BR, gimana ke Gedung U?”  
+**Jawaban:**  
+> Dari Gedung BR, jalan ke arah bundaran, lalu belok kiri. Teruskan jalan hingga Anda melewati Masjid. Gedung U akan terlihat mengelilingi lapangan di depan Anda. Perjalanan ini cukup dekat, sekitar 2–3 menit jalan kaki.
+
+---
+
+**Pengguna:** “Saya mau ke tempat yang ada di foto ini” (mengirim gambar)  
+**Jawaban:**  
+> Terima kasih atas gambar bangunannya. Apakah Anda ingin tahu cara **menuju ke tempat ini** atau **dari sini ke lokasi tertentu**? Bila Anda tahu nama bangunannya, saya bisa bantu lebih cepat.
+
+---
+
+### 🔁 Variasi Bahasa
+Jawabanmu bisa divariasikan agar tidak selalu kaku. Misalnya:
+- “Silakan terus jalan mengikuti arah utama kampus.”
+- “Nanti Anda akan melihat bangunan tersebut di sebelah kanan jalan.”
+- “Kalau sudah sampai bundaran, tinggal belok kiri lalu jalan sebentar lagi.”
+
+---
+
+### Daftar Lokasi dan Kata Kunci
+(gunakan daftar `id`, `name`, dan `keywords` seperti pada data sebelumnya untuk mengenali input pengguna)
+
+---
+
+**Catatan Tambahan:**  
+Jika pengguna meminta bantuan dengan gambar bangunan yang belum terdaftar, simpan sebagai "lokasi baru", dan ajukan pertanyaan konfirmasi agar bisa dipetakan secara manual oleh admin/AI. 
+
+**CATATAN TAMBAHAN DAN PALNIG PENTING**
+JANGAN PERNAH TAMPILKAN STRUKTUR DATA ATAU KODE JSON KE PENGGUNA.
+
+### ——— AKHIR PROMPT ———
+
+#### Struktur Data Lokasi
+```json
+[
+  {
+    "id": "gerbang-utama",
+    "name": "Gerbang Utama",
+    "coordinates": [-5.995886748319901, 106.03222238158827],
+    "description": "Pintu masuk utama kampus",
+    "directions_from_main_gate": "Anda sudah berada di titik acuan utama.",
+    "distance_from_main_gate": "0 meter",
+    "landmark": "Terletak di samping jalan utama",
+    "type": "entrance",
+    "keywords": ["gerbang", "masuk", "utama", "entrance", "pintu masuk"]
+  },
+  {
+    "id": "aula-teknik",
+    "name": "Aula Teknik",
+    "coordinates": [-5.996349339599412, 106.03201051838397],
+    "description": "Aula untuk kegiatan teknik dan acara besar",
+    "directions_from_main_gate": "Sekitar 40 meter dari gerbang utama, berada di sebelah kiri jalan utama kampus. Tersedia area parkir di depan aula.",
+    "distance_from_main_gate": "40 meter",
+    "landmarks": ["area parkir", "sebelah kiri jalan utama"],
+    "type": "academic_building",
+    "keywords": ["aula", "teknik", "acara", "parkir", "kegiatan"]
+  },
+  {
+    "id": "perpustakaan-untirta",
+    "name": "Perpustakaan Untirta",
+    "coordinates": [-5.9966385786699625, 106.03172642908444],
+    "description": "Perpustakaan utama universitas",
+    "directions_from_main_gate": "Sekitar 100 meter dari gerbang utama. Ikuti jalan utama, lalu belok kiri. Gedung perpustakaan berada di lokasi tersebut.",
+    "distance_from_main_gate": "100 meter",
+    "landmarks": ["belok kiri dari jalan utama"],
+    "type": "library",
+    "keywords": ["perpustakaan", "buku", "library", "belajar", "membaca", "literatur"]
+  },
+  {
+    "id": "masjid-untirta",
+    "name": "Masjid Untirta",
+    "coordinates": [-5.996779367170809, 106.03135952050484],
+    "description": "Masjid kampus untuk ibadah",
+    "directions_from_main_gate": "Sekitar 130 meter dari gerbang utama. Ikuti jalan utama, lalu belok kiri setelah bundaran pertigaan ke arah Gedung Letter U dan COE/BR. Masjid berada di sebelah kiri jalan.",
+    "distance_from_main_gate": "130 meter",
+    "landmarks": ["bundaran pertigaan", "sebelah kiri jalan", "dekat Gedung Letter U"],
+    "type": "religious",
+    "keywords": ["masjid", "sholat", "ibadah", "musholla", "islam", "sembahyang"]
+  },
+  {
+    "id": "gedung-br",
+    "name": "Gedung BR",
+    "coordinates": [-5.996415153597401, 106.03115302884463],
+    "description": "Gedung untuk kegiatan akademik",
+    "directions_from_main_gate": "Sekitar 130 meter dari gerbang utama. Melewati bundaran pertigaan, belok kanan. Gedung BR terletak di sebelah kanan jalan utama, berseberangan dengan gedung dekanat.",
+    "distance_from_main_gate": "130 meter",
+    "landmarks": ["bundaran pertigaan", "berseberangan dengan dekanat", "sebelah kanan jalan"],
+    "type": "academic_building",
+    "keywords": ["gedung br", "akademik", "berseberangan dekanat", "kuliah"]
+  },
+  {
+    "id": "gedung-coe-lab",
+    "name": "Gedung COE (Lab Energi Terbarukan)",
+    "coordinates": [-5.996313352480975, 106.03040089671785],
+    "description": "Laboratorium energi terbarukan",
+    "directions_from_main_gate": "Dari gerbang utama, maju 130 meter ke bundaran, belok kanan, lanjut 80 meter, belok kanan lagi, maju 50 meter. Gedung COE berada di sebelah kanan jalan.",
+    "distance_from_main_gate": "260 meter",
+    "landmarks": ["bundaran", "belok kanan dua kali"],
+    "type": "laboratory",
+    "keywords": ["coe", "lab", "energi", "terbarukan", "laboratorium", "penelitian"]
+  },
+  {
+    "id": "gedung-coe-kedokteran",
+    "name": "Gedung COE (Bekas Fakultas Kedokteran)",
+    "coordinates": [-5.996014588241359, 106.03016947145296],
+    "description": "Gedung bekas fakultas kedokteran, sekarang untuk COE",
+    "directions_from_main_gate": "Rute sama seperti ke Lab Energi Terbarukan. Dari bundaran, belok kanan, lanjut 80 meter, belok kanan lagi, maju 80 meter. Gedung ini juga berada di sisi kanan jalan.",
+    "distance_from_main_gate": "290 meter",
+    "landmarks": ["bundaran", "belok kanan dua kali", "sisi kanan jalan"],
+    "type": "academic_building",
+    "keywords": ["coe", "kedokteran", "bekas", "fakultas", "informatika"],
+    "special_facilities": ["Laboratorium Informatika (Lantai 2)"]
+  },
+  {
+    "id": "lapangan-futsal",
+    "name": "Lapangan Futsal",
+    "coordinates": [-5.9963974490517, 106.02984223887029],
+    "description": "Lapangan untuk olahraga futsal",
+    "directions_from_main_gate": "Dari gerbang utama, maju 130 meter ke bundaran, belok kanan, lanjut lurus 140 meter. Lapangan futsal berada tepat di samping kantin.",
+    "distance_from_main_gate": "270 meter",
+    "landmarks": ["bundaran", "samping kantin"],
+    "type": "sports_facility",
+    "keywords": ["lapangan", "futsal", "olahraga", "sepak bola", "sport"]
+  },
+  {
+    "id": "kantin",
+    "name": "Kantin",
+    "coordinates": [-5.996685147751311, 106.03000468160063],
+    "description": "Kantin untuk makan dan minum",
+    "directions_from_main_gate": "Dari gerbang utama, maju 130 meter ke bundaran, belok kanan, lanjut lurus 140 meter. Kantin berada di kanan jalan.",
+    "distance_from_main_gate": "270 meter",
+    "landmarks": ["bundaran", "kanan jalan", "dekat lapangan futsal"],
+    "type": "food_service",
+    "keywords": ["kantin", "makan", "minum", "food court", "makanan", "kuliner"]
+  },
+  {
+    "id": "danau-ft",
+    "name": "Danau FT",
+    "coordinates": [-5.996800227188384, 106.02964641748001],
+    "description": "Danau di area Fakultas Teknik",
+    "directions_from_main_gate": "Dari bundaran, lanjut lurus 150 meter. Danau terletak di belakang kantin.",
+    "distance_from_main_gate": "280 meter",
+    "landmarks": ["bundaran", "belakang kantin"],
+    "type": "landmark",
+    "keywords": ["danau", "ft", "fakultas teknik", "air", "taman"]
+  },
+  {
+    "id": "gedung-dekanat",
+    "name": "Gedung Dekanat",
+    "coordinates": [-5.9967716202588495, 106.03104661695893],
+    "description": "Gedung administrasi dekanat",
+    "directions_from_main_gate": "Dari gerbang utama, maju 130 meter ke bundaran, belok kiri 10 meter. Gedung dekanat berada di sebelah kanan jalan.",
+    "distance_from_main_gate": "140 meter",
+    "landmarks": ["bundaran", "belok kiri", "sebelah kanan jalan"],
+    "type": "administrative",
+    "keywords": ["dekanat", "administrasi", "kantor", "pimpinan"]
+  },
+  {
+    "id": "gedung-letter-u",
+    "name": "Gedung Letter U (Gedung U)",
+    "coordinates": [-5.997716569713648, 106.03158609531123],
+    "description": "Gedung berbentuk huruf U yang mengelilingi lapangan",
+    "directions_from_main_gate": "Dari bundaran, belok kiri sekitar 75 meter. Gedung Letter U mengelilingi lapangan.",
+    "distance_from_main_gate": "205 meter",
+    "landmarks": ["bundaran", "belok kiri", "mengelilingi lapangan"],
+    "type": "academic_building",
+    "keywords": ["letter u", "gedung u", "lapangan", "huruf u", "kuliah"]
+  },
+  {
+    "id": "tirtayasa-medical-center",
+    "name": "Tirtayasa Medical Center",
+    "coordinates": [-5.996548528652879, 106.03218811639017],
+    "description": "Pusat kesehatan kampus",
+    "directions_from_main_gate": "Dari gerbang utama, maju 40 meter, belok kiri. Gedung terletak di samping Aula Teknik.",
+    "distance_from_main_gate": "40 meter",
+    "landmarks": ["samping Aula Teknik", "belok kiri"],
+    "type": "medical_facility",
+    "keywords": ["medical center", "kesehatan", "klinik", "dokter", "tirtayasa", "puskesmas"]
+  }
+]
+"""
+
+query = st.text_input("Masukkan pertanyaanmu:")
+if query:
+    with st.spinner("🔍 Menanyakan ke LLM Cloud..."):
+        full_prompt = f"{denah_kampus}\n\nPertanyaan: {query}\nJawaban yang sopan dan ringkas:" 
+        jawaban = query_openrouter(full_prompt)
+        st.markdown("### ✨ Jawaban:")
+        st.success(jawaban)
